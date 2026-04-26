@@ -1,0 +1,213 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap");
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+==========================================================================
+【AI HANDOVER NOTE】
+1. DESIGN PHILOSOPHY:
+   - Corporate Professionalism: Sistema CRM B2B para construtoras, exigindo credibilidade institucional e hierarquia visual clara
+   - Data-First Dashboard: Foco em métricas de prospecção (taxa de resposta, conversões, follow-ups) com visualização imediata
+   - Status-Driven UI: Pipeline visual inspirado em HubSpot/Pipedrive, onde badges coloridos comunicam etapas do funil
+   - Brazilian Business Context: Respeito ao relacionamento construtora-arquiteto, interface profissional sem excessos
+
+2. TYPOGRAPHY:
+   - Inter: Escolhida por sua neutralidade corporativa, excelente legibilidade em tabelas densas e números. Peso 600/700 para hierarquia de métricas
+   - JetBrains Mono: Para números de WhatsApp, timestamps de mensagens e dados técnicos. Mantém alinhamento vertical em listas
+   - Hierarquia forte: Títulos de seção em 600, labels em 500, corpo em 400. Escala modular para dashboards (14px base, 12px secondary)
+
+3. COLOR SYSTEM:
+   - Brand Primary (Blue 600 #3b82f6): Azul corporativo confiável, usado em CTAs principais e sidebar. Hue 220° para transmitir profissionalismo tech
+   - --brand mapeia para --primary (botões de ação), --sidebar-primary (navegação ativa), --ring (foco de formulários)
+   - Navy Sidebar (--sidebar: oklch(0.15 0.02 240)): Azul-marinho escuro (#1e293b) para contraste com conteúdo claro, reduz fadiga visual
+   - Semantic Colors: --success (Hue 150°) para 'Convertido', --warning (Hue 45°) para 'Follow-up', --destructive (Hue 10°) para 'Arquivado'
+   - Neutral Grays: Escala de cinza frio (Hue 220°) para tabelas, borders e muted text. --muted-foreground em #64748b para labels secundários
+   - Chart Colors: 5 tons distintos para gráficos de funil (azul, verde, âmbar, roxo, rosa) com saturação moderada para profissionalismo
+
+4. USAGE GUIDE:
+   - Layout: Dashboard full-width com sidebar fixa esquerda (260px). Conteúdo principal em container max-w-7xl com padding generoso
+   - Card System: Sombras suaves (shadow-sm) em cards brancos sobre fundo #f8fafc. Hover states com shadow-md para interatividade
+   - Status Badges: Usar --chart-* colors com background opacity 10% e foreground 100%. Border sutil para definição
+   - Tables: Striped rows com --muted background, hover com --accent. Sticky header para listas longas de arquitetos
+   - Buttons: Primary em --primary (azul), Secondary em --secondary (cinza), Destructive apenas para arquivar contatos
+   - Sidebar: Background --sidebar com foreground em 70% opacity para itens inativos, 100% + --sidebar-primary para ativo
+   - Accessibility: Garantir contraste mínimo 4.5:1 em textos sobre backgrounds coloridos. Focus rings visíveis em --ring
+   - WhatsApp Integration: Ícone verde (#25D366) apenas em botões de disparo, não como cor de sistema para evitar poluição visual
+==========================================================================
+*/
+
+:root {
+  /* Typography */
+  --font-sans: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: JetBrains Mono, 'Courier New', monospace;
+  
+  /* Radius */
+  --radius: 0.5rem;
+
+  /* Core UI Tokens */
+  --background: oklch(0.99 0 0);
+  --foreground: oklch(0.15 0.01 240);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.15 0.01 240);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.15 0.01 240);
+  --primary: oklch(0.55 0.18 240);
+  --primary-foreground: oklch(0.98 0 0);
+  --secondary: oklch(0.96 0.005 240);
+  --secondary-foreground: oklch(0.2 0.01 240);
+  --muted: oklch(0.97 0.005 240);
+  --muted-foreground: oklch(0.48 0.01 240);
+  --accent: oklch(0.95 0.01 240);
+  --accent-foreground: oklch(0.2 0.01 240);
+  --destructive: oklch(0.55 0.22 10);
+  --destructive-foreground: oklch(0.98 0 0);
+  --border: oklch(0.90 0.005 240);
+  --input: oklch(0.90 0.005 240);
+  --ring: oklch(0.55 0.18 240);
+  
+  /* Chart Tokens */
+  --chart-1: oklch(0.55 0.18 240);
+  --chart-2: oklch(0.60 0.16 150);
+  --chart-3: oklch(0.65 0.15 45);
+  --chart-4: oklch(0.58 0.17 280);
+  --chart-5: oklch(0.62 0.19 340);
+  
+  /* Sidebar Tokens */
+  --sidebar: oklch(0.15 0.02 240);
+  --sidebar-foreground: oklch(0.85 0.01 240);
+  --sidebar-primary: oklch(0.55 0.18 240);
+  --sidebar-primary-foreground: oklch(0.98 0 0);
+  --sidebar-accent: oklch(0.22 0.03 240);
+  --sidebar-accent-foreground: oklch(0.90 0.01 240);
+  --sidebar-border: oklch(0.20 0.02 240);
+  --sidebar-ring: oklch(0.55 0.18 240);
+}
+
+.dark {
+  --background: oklch(0.12 0.01 240);
+  --foreground: oklch(0.92 0.005 240);
+  --card: oklch(0.15 0.01 240);
+  --card-foreground: oklch(0.92 0.005 240);
+  --popover: oklch(0.15 0.01 240);
+  --popover-foreground: oklch(0.92 0.005 240);
+  --primary: oklch(0.62 0.20 240);
+  --primary-foreground: oklch(0.12 0.01 240);
+  --secondary: oklch(0.20 0.02 240);
+  --secondary-foreground: oklch(0.90 0.005 240);
+  --muted: oklch(0.18 0.01 240);
+  --muted-foreground: oklch(0.60 0.01 240);
+  --accent: oklch(0.22 0.02 240);
+  --accent-foreground: oklch(0.90 0.005 240);
+  --destructive: oklch(0.58 0.24 10);
+  --destructive-foreground: oklch(0.95 0.005 240);
+  --border: oklch(0.25 0.02 240);
+  --input: oklch(0.25 0.02 240);
+  --ring: oklch(0.62 0.20 240);
+  
+  /* Chart Tokens */
+  --chart-1: oklch(0.62 0.20 240);
+  --chart-2: oklch(0.65 0.18 150);
+  --chart-3: oklch(0.70 0.17 45);
+  --chart-4: oklch(0.63 0.19 280);
+  --chart-5: oklch(0.67 0.21 340);
+  
+  /* Sidebar Tokens */
+  --sidebar: oklch(0.10 0.015 240);
+  --sidebar-foreground: oklch(0.80 0.01 240);
+  --sidebar-primary: oklch(0.62 0.20 240);
+  --sidebar-primary-foreground: oklch(0.95 0.005 240);
+  --sidebar-accent: oklch(0.18 0.025 240);
+  --sidebar-accent-foreground: oklch(0.88 0.01 240);
+  --sidebar-border: oklch(0.15 0.02 240);
+  --sidebar-ring: oklch(0.62 0.20 240);
+}
+
+@theme inline {
+  /* Shadcn Core Mapping */
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  /* Charts Mapping */
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+
+  /* Sidebar Mapping */
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  /* Typography */
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+
+  /* Radius */
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  html {
+    @apply scroll-smooth antialiased;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans min-h-screen;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-semibold tracking-tight;
+  }
+
+  code, pre {
+    @apply font-mono;
+  }
+
+  ::selection {
+    @apply bg-primary/20 text-primary;
+  }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    @apply bg-transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-muted-foreground/20 rounded-full hover:bg-muted-foreground/40;
+  }
+}
