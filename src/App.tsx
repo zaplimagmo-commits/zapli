@@ -32,14 +32,16 @@ const SDR_BLOCKED = [ROUTES.APP_CRM, ROUTES.APP_CLIENTS, ROUTES.APP_CLIENT_DETAI
 const VENDEDOR_BLOCKED = [ROUTES.APP_CONTACTS, ROUTES.APP_QUEUE, ROUTES.APP_CAMPAIGNS, ROUTES.APP_BOT, ROUTES.APP_INSTAGRAM, ROUTES.APP_TEAM, ROUTES.APP_SUBSCRIPTION, ROUTES.APP_SETTINGS];
 
 function ProtectedRoute({ children, adminOnly = false }: { children: React.ReactNode; adminOnly?: boolean }) {
-  const { user } = useAuth();
+  const { user, loading } = useAuth();
+  if (loading) return <div className="min-h-screen flex items-center justify-center" style={{ background: '#f8fafc' }}><div className="w-8 h-8 rounded-full border-4 border-indigo-400 border-t-transparent animate-spin" /></div>;
   if (!user) return <Navigate to={ROUTES.LOGIN} replace />;
   if (adminOnly && user.role !== 'admin') return <Navigate to={ROUTES.APP_DASHBOARD} replace />;
   return <>{children}</>;
 }
 
 function RoleProtectedRoute({ children, routePath }: { children: React.ReactNode; routePath: string }) {
-  const { user } = useAuth();
+  const { user, loading } = useAuth();
+  if (loading) return <div className="min-h-screen flex items-center justify-center" style={{ background: '#f8fafc' }}><div className="w-8 h-8 rounded-full border-4 border-indigo-400 border-t-transparent animate-spin" /></div>;
   if (!user) return <Navigate to={ROUTES.LOGIN} replace />;
   const role = user.tenantRole;
   if (role === 'gestor' || user.role === 'admin') return <>{children}</>;

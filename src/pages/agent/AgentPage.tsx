@@ -1,402 +1,336 @@
-// ============================================================
-// AgentPage — Página do Agente Zapli (PWA)
-//
-// Esta página É o agente. O cliente abre o link no celular
-// ou computador e ela cuida da conexão WhatsApp.
-//
-// URL: /#/agent/:tenantId
-// Pode ser instalada como PWA (Add to Home Screen)
-// ============================================================
-
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
-import {
-  Wifi, WifiOff, Smartphone, CheckCircle2,
-  Moon, Zap, RefreshCw, Battery, Signal,
-  MessageSquare, Send, Clock, AlertCircle,
-  ChevronDown, ChevronUp, Download,
-} from 'lucide-react';
-import { QRCodeSVG } from '@/components/QRCode';
-import { agentManager, type AgentStatus } from '@/lib/agentManager';
+import { Wifi, WifiOff, Loader2, RefreshCw, CheckCircle2, Phone, Zap } from 'lucide-react';
 
-// Conteúdo demo do QR (em produção: gerado pelo backend Evolution/Baileys)
-const DEMO_QR_CONTENT = 'https://zapli.com.br/demo-whatsapp-qr';
+// ── Tipos ────────────────────────────────────────────────────────────────────
+type AgentStatus = 'offline' | 'connecting' | 'qr_ready' | 'connected';
 
-// ── SVG removido — usando qrcode.react ────────────────────
+interface WSMessage {
+  type: 'status' | 'qr' | 'connected' | 'message_received' | 'error';
+  status?: AgentStatus;
+  qr?: string;          // base64 PNG
+  qrRaw?: string;
+  profileName?: string;
+  profilePhone?: string;
+  hasQR?: boolean;
+  message?: string;
+  reason?: number;
+}
 
-// ── Dados de demo por tenant ───────────────────────────────
-const TENANT_DEMO: Record<string, { name: string; company: string }> = {
-  tenant1: { name: 'Ana Oliveira',  company: 'Construtora ABC' },
-  tenant2: { name: 'Carlos Souza',  company: 'Fornecedor XYZ' },
-  demo:    { name: 'Usuário Demo',  company: 'Empresa Demo' },
-};
+// ── Configuração do servidor ──────────────────────────────────────────────────
+const SERVER_URL = import.meta.env.VITE_AGENT_SERVER_URL as string | undefined;
 
-// ── Componente principal ───────────────────────────────────
+function getWsUrl(tenantId: string): string | null {
+  if (!SERVER_URL) return null;
+  const base = SERVER_URL.replace(/^http/, 'ws').replace(/\/$/, '');
+  return `${base}/ws?tenantId=${tenantId}`;
+}
+
+function getApiUrl(path: string): string | null {
+  if (!SERVER_URL) return null;
+  return `${SERVER_URL.replace(/\/$/, '')}${path}`;
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 export default function AgentPage() {
-  const { tenantId = 'demo' } = useParams<{ tenantId: string }>();
-  const tenant  = TENANT_DEMO[tenantId] ?? { name: 'Empresa', company: tenantId };
+  const { tenantId } = useParams<{ tenantId: string }>();
 
-  const [status,       setStatus]       = useState<AgentStatus>('online');
-  const [profileName,  setProfileName]  = useState('');
-  const [profilePhone, setProfilePhone] = useState('');
-  const [qrVisible,    setQrVisible]    = useState(true);
-  const [sentToday,    setSentToday]    = useState(0);
-  const [uptime,       setUptime]       = useState(0);
-  const [showStats,    setShowStats]    = useState(false);
-  const [connecting,   setConnecting]   = useState(false);
-  const [canInstall,   setCanInstall]   = useState(false);
-  const [qrExpiry,     setQrExpiry]     = useState(60);
+  const [status, setStatus] = useState<AgentStatus>('offline');
+  const [qrImage, setQrImage] = useState<string | null>(null);
+  const [profileName, setProfileName] = useState<string | null>(null);
+  const [profilePhone, setProfilePhone] = useState<string | null>(null);
+  const [serverOnline, setServerOnline] = useState(false);
+  const [serverChecked, setServerChecked] = useState(false);
+  const [log, setLog] = useState<string[]>([]);
 
-  const uptimeRef    = useRef<ReturnType<typeof setInterval> | null>(null);
-  const qrTimerRef   = useRef<ReturnType<typeof setInterval> | null>(null);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const deferredRef  = useRef<any>(null);
+  const wsRef = useRef<WebSocket | null>(null);
+  const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Registra agente ao abrir
+  const addLog = useCallback((msg: string) => {
+    const time = new Date().toLocaleTimeString('pt-BR');
+    setLog(prev => [`[${time}] ${msg}`, ...prev].slice(0, 20));
+  }, []);
+
+  // ── Verificar se servidor está online ─────────────────────────────────────
   useEffect(() => {
-    agentManager.registerAgent(tenantId);
+    if (!SERVER_URL) {
+      setServerChecked(true);
+      return;
+    }
+    const url = getApiUrl('/');
+    if (!url) { setServerChecked(true); return; }
 
-    // PWA install prompt
-    const onBeforeInstall = (e: Event) => { e.preventDefault(); deferredRef.current = e; setCanInstall(true); };
-    window.addEventListener('beforeinstallprompt', onBeforeInstall);
-
-    // Uptime counter
-    uptimeRef.current = setInterval(() => setUptime(s => s + 1), 1000);
-
-    // QR expiry countdown
-    qrTimerRef.current = setInterval(() => {
-      setQrExpiry(s => {
-        if (s <= 1) { refreshQR(); return 60; }
-        return s - 1;
+    fetch(url, { method: 'GET' })
+      .then(r => {
+        setServerOnline(r.ok);
+        setServerChecked(true);
+      })
+      .catch(() => {
+        setServerOnline(false);
+        setServerChecked(true);
       });
-    }, 1000);
+  }, []);
 
-    return () => {
-      agentManager.setOffline(tenantId);
-      if (uptimeRef.current)  clearInterval(uptimeRef.current);
-      if (qrTimerRef.current) clearInterval(qrTimerRef.current);
+  // ── Conectar WebSocket ─────────────────────────────────────────────────────
+  const connectWS = useCallback(() => {
+    if (!tenantId || !SERVER_URL) return;
+    const wsUrl = getWsUrl(tenantId);
+    if (!wsUrl) return;
+
+    // Fecha conexão anterior
+    if (wsRef.current) {
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+
+    addLog('Conectando ao servidor Zapli...');
+    const ws = new WebSocket(wsUrl);
+    wsRef.current = ws;
+
+    ws.onopen = () => {
+      addLog('✅ Servidor conectado');
+      setServerOnline(true);
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tenantId]);
 
-  // Listener de mudanças do agente
+    ws.onmessage = event => {
+      try {
+        const data = JSON.parse(event.data) as WSMessage;
+
+        if (data.type === 'status') {
+          setStatus(data.status ?? 'offline');
+          if (data.profileName) setProfileName(data.profileName);
+          if (data.profilePhone) setProfilePhone(data.profilePhone);
+          addLog(`Status: ${data.status}`);
+        }
+
+        if (data.type === 'qr' && data.qr) {
+          setQrImage(data.qr);
+          setStatus('qr_ready');
+          addLog('📱 QR code gerado — escaneie agora!');
+        }
+
+        if (data.type === 'connected') {
+          setStatus('connected');
+          setQrImage(null);
+          if (data.profileName) setProfileName(data.profileName);
+          if (data.profilePhone) setProfilePhone(data.profilePhone);
+          addLog(`✅ WhatsApp conectado! ${data.profilePhone ?? ''}`);
+        }
+
+        if (data.type === 'error') {
+          addLog(`❌ Erro: ${data.message}`);
+        }
+      } catch { /* ignora */ }
+    };
+
+    ws.onclose = () => {
+      addLog('Conexão com servidor encerrada. Reconectando em 5s...');
+      setServerOnline(false);
+      reconnectTimer.current = setTimeout(() => connectWS(), 5000);
+    };
+
+    ws.onerror = () => {
+      addLog('❌ Erro de conexão com servidor');
+    };
+  }, [tenantId, addLog]);
+
   useEffect(() => {
-    return agentManager.on(tenantId, (info) => {
-      setStatus(info.status);
-      setProfileName(info.profileName);
-      setProfilePhone(info.profilePhone);
-      setSentToday(info.sentToday);
-    });
-  }, [tenantId]);
+    if (serverChecked && serverOnline) {
+      connectWS();
+    }
+    return () => {
+      if (wsRef.current) wsRef.current.close();
+      if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
+    };
+  }, [serverChecked, serverOnline, connectWS]);
 
-  // Simula conexão ao clicar "Já escaneei"
-  async function handleConnect() {
-    setConnecting(true);
+  // ── Ações ──────────────────────────────────────────────────────────────────
+  function handleConnect() {
+    if (!SERVER_URL) return;
+    const url = getApiUrl(`/connect/${tenantId}`);
+    if (!url) return;
+    addLog('Iniciando conexão WhatsApp...');
     setStatus('connecting');
-    agentManager.setStatus(tenantId, 'connecting');
-    await new Promise(r => setTimeout(r, 2500));
-    const phone = '5511' + Math.floor(900000000 + Math.random() * 99999999);
-    agentManager.setConnected(tenantId, tenant.name, phone);
-    setStatus('connected');
-    setProfileName(tenant.name);
-    setProfilePhone(phone);
-    setQrVisible(false);
-    setConnecting(false);
-    if (qrTimerRef.current) clearInterval(qrTimerRef.current);
+    fetch(url, { method: 'POST' }).catch(err => addLog(`Erro: ${err.message}`));
   }
 
-  function refreshQR() {
-    setQrExpiry(60);
-    setQrVisible(false);
-    setTimeout(() => setQrVisible(true), 400);
+  function handleDisconnect() {
+    if (!SERVER_URL) return;
+    const url = getApiUrl(`/disconnect/${tenantId}`);
+    if (!url) return;
+    fetch(url, { method: 'POST' }).then(() => {
+      setStatus('offline');
+      setQrImage(null);
+      setProfileName(null);
+      setProfilePhone(null);
+      addLog('WhatsApp desconectado.');
+    });
   }
 
-  async function handleInstall() {
-    if (!deferredRef.current) return;
-    deferredRef.current.prompt();
-    await deferredRef.current.userChoice;
-    deferredRef.current = null;
-    setCanInstall(false);
-  }
-
-  function formatUptime(s: number): string {
-    const h = Math.floor(s / 3600);
-    const m = Math.floor((s % 3600) / 60);
-    const sec = s % 60;
-    if (h > 0) return `${h}h ${m}m`;
-    if (m > 0) return `${m}m ${sec}s`;
-    return `${sec}s`;
-  }
-
-  const isConnected = status === 'connected';
-  const isConnecting = status === 'connecting';
+  // ─────────────────────────────────────────────────────────────────────────
+  const tid = tenantId ?? '—';
 
   return (
-    <div className="min-h-screen flex flex-col" style={{ background: '#f8fafc' }}>
+    <div className="min-h-screen flex flex-col items-center justify-center p-6"
+      style={{ background: 'linear-gradient(135deg, #1e1b4b 0%, #312e81 60%, #0f172a 100%)' }}>
 
-      {/* ── Topo ── */}
-      <div className="px-4 pt-5 pb-3 flex items-center justify-between"
-        style={{ background: '#1e1b4b' }}>
-        <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg flex items-center justify-center"
-            style={{ background: '#10b981' }}>
-            <span className="text-white font-black text-sm">Z</span>
-          </div>
-          <div>
-            <p className="text-white font-bold text-sm leading-tight">Zapli Agent</p>
-            <p className="text-indigo-300 text-xs">{tenant.company}</p>
-          </div>
+      {/* Cabeçalho */}
+      <div className="flex items-center gap-3 mb-8">
+        <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: '#10b981' }}>
+          <Zap className="w-5 h-5 text-white" />
+        </div>
+        <div>
+          <h1 className="text-white font-bold text-xl">Zapli Agent</h1>
+          <p className="text-indigo-300 text-xs font-mono">{tid}</p>
+        </div>
+      </div>
+
+      {/* Card principal */}
+      <div className="w-full max-w-sm bg-white rounded-2xl overflow-hidden shadow-2xl">
+
+        {/* Status bar */}
+        <div className={`px-5 py-3 flex items-center gap-2 ${
+          status === 'connected' ? 'bg-emerald-500' :
+          status === 'qr_ready' ? 'bg-amber-500' :
+          status === 'connecting' ? 'bg-blue-500' :
+          'bg-slate-500'
+        }`}>
+          {status === 'connected' && <CheckCircle2 size={16} className="text-white" />}
+          {status === 'qr_ready' && <Phone size={16} className="text-white" />}
+          {status === 'connecting' && <Loader2 size={16} className="text-white animate-spin" />}
+          {status === 'offline' && <WifiOff size={16} className="text-white" />}
+          <span className="text-white text-sm font-semibold">
+            {status === 'connected' ? `Conectado${profilePhone ? ` · ${profilePhone}` : ''}` :
+             status === 'qr_ready' ? 'Escaneie o QR code' :
+             status === 'connecting' ? 'Aguardando QR...' :
+             'Desconectado'}
+          </span>
         </div>
 
-        {/* Status badge */}
-        <div className={[
-          'flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold',
-          isConnected
-            ? 'bg-emerald-500/20 text-emerald-300'
-            : isConnecting
-              ? 'bg-amber-500/20 text-amber-300'
-              : 'bg-slate-500/20 text-slate-300',
-        ].join(' ')}>
-          {isConnected ? (
-            <><span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />Ativo</>
-          ) : isConnecting ? (
-            <><RefreshCw size={10} className="animate-spin" />Conectando</>
-          ) : (
-            <><span className="w-1.5 h-1.5 rounded-full bg-slate-400" />Aguardando</>
+        <div className="p-6">
+          {/* Servidor offline */}
+          {serverChecked && !SERVER_URL && (
+            <div className="text-center py-6">
+              <div className="w-16 h-16 rounded-full bg-orange-100 flex items-center justify-center mx-auto mb-4">
+                <WifiOff size={28} className="text-orange-500" />
+              </div>
+              <h3 className="font-bold text-gray-800 mb-2">Servidor não configurado</h3>
+              <p className="text-sm text-gray-500 mb-4">
+                Configure <code className="bg-gray-100 px-1 rounded text-xs">VITE_AGENT_SERVER_URL</code> no <code className="bg-gray-100 px-1 rounded text-xs">.env</code> para conectar o WhatsApp.
+              </p>
+              <div className="rounded-lg p-3 text-left text-xs text-gray-600" style={{ background: '#f8fafc', border: '1px solid #e2e8f0' }}>
+                <p className="font-semibold mb-1">📋 Como configurar:</p>
+                <p>1. Deploy do servidor em <strong>railway.app</strong></p>
+                <p>2. Copie a URL do Railway</p>
+                <p>3. Adicione em <code>.env</code>:</p>
+                <code className="block mt-1 text-indigo-700">VITE_AGENT_SERVER_URL=https://xxx.railway.app</code>
+              </div>
+            </div>
+          )}
+
+          {/* Servidor configurado mas offline */}
+          {serverChecked && SERVER_URL && !serverOnline && (
+            <div className="text-center py-6">
+              <div className="w-16 h-16 rounded-full bg-red-100 flex items-center justify-center mx-auto mb-4">
+                <WifiOff size={28} className="text-red-500" />
+              </div>
+              <h3 className="font-bold text-gray-800 mb-2">Servidor offline</h3>
+              <p className="text-sm text-gray-500 mb-4">
+                Não foi possível conectar ao servidor WhatsApp.<br />
+                Verifique se o deploy no Railway está ativo.
+              </p>
+              <button
+                onClick={connectWS}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold text-white"
+                style={{ background: '#6366f1' }}
+              >
+                <RefreshCw size={14} /> Tentar novamente
+              </button>
+            </div>
+          )}
+
+          {/* QR Code — real, escaneável */}
+          {serverOnline && status === 'qr_ready' && qrImage && (
+            <div className="text-center">
+              <p className="text-sm text-gray-600 mb-4 font-medium">
+                Abra o WhatsApp no celular → Dispositivos conectados → Conectar um dispositivo
+              </p>
+              <div className="inline-block p-3 rounded-xl bg-white border-2 border-emerald-400 shadow-lg">
+                <img src={qrImage} alt="QR WhatsApp" width={240} height={240} className="block" />
+              </div>
+              <p className="text-xs text-gray-400 mt-3">QR expira em ~60s · Atualiza automaticamente</p>
+            </div>
+          )}
+
+          {/* Aguardando QR */}
+          {serverOnline && status === 'connecting' && !qrImage && (
+            <div className="text-center py-8">
+              <Loader2 size={40} className="text-indigo-400 animate-spin mx-auto mb-4" />
+              <p className="text-gray-600 font-medium">Gerando QR code...</p>
+              <p className="text-sm text-gray-400 mt-1">Aguarde alguns segundos</p>
+            </div>
+          )}
+
+          {/* Conectado */}
+          {serverOnline && status === 'connected' && (
+            <div className="text-center py-4">
+              <div className="w-16 h-16 rounded-full bg-emerald-100 flex items-center justify-center mx-auto mb-4">
+                <CheckCircle2 size={32} className="text-emerald-500" />
+              </div>
+              <h3 className="font-bold text-gray-800 text-lg mb-1">WhatsApp Ativo!</h3>
+              {profileName && <p className="text-gray-600 font-medium">{profileName}</p>}
+              {profilePhone && <p className="text-sm text-gray-400">{profilePhone}</p>}
+              <p className="text-xs text-emerald-600 mt-3 font-medium">
+                ✅ Pronto para enviar e receber mensagens
+              </p>
+              <button
+                onClick={handleDisconnect}
+                className="mt-4 text-xs text-red-400 hover:text-red-600 underline"
+              >
+                Desconectar este dispositivo
+              </button>
+            </div>
+          )}
+
+          {/* Offline — botão para conectar */}
+          {serverOnline && status === 'offline' && (
+            <div className="text-center py-4">
+              <div className="w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center mx-auto mb-4">
+                <Wifi size={28} className="text-slate-400" />
+              </div>
+              <h3 className="font-bold text-gray-800 mb-2">WhatsApp desconectado</h3>
+              <p className="text-sm text-gray-500 mb-5">
+                Clique abaixo para gerar o QR code e conectar este número.
+              </p>
+              <button
+                onClick={handleConnect}
+                className="w-full py-3 rounded-xl text-white font-semibold text-sm"
+                style={{ background: 'linear-gradient(135deg, #10b981, #059669)' }}
+              >
+                Conectar WhatsApp
+              </button>
+            </div>
           )}
         </div>
       </div>
 
-      {/* ── Instalar como App ── */}
-      {canInstall && (
-        <button onClick={handleInstall}
-          className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-white"
-          style={{ background: '#4f46e5' }}>
-          <Download size={14} />
-          Instalar como app no dispositivo
-          <span className="ml-auto text-indigo-300 text-xs">Recomendado</span>
-        </button>
-      )}
-
-      <div className="flex-1 px-4 py-5 space-y-4 max-w-sm mx-auto w-full">
-
-        {/* ── CONECTADO ── */}
-        {isConnected && (
-          <>
-            {/* Card principal */}
-            <div className="rounded-2xl overflow-hidden"
-              style={{ background: '#1e1b4b' }}>
-              <div className="p-5">
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="w-12 h-12 rounded-full flex items-center justify-center text-xl"
-                    style={{ background: '#10b981' }}>
-                    😊
-                  </div>
-                  <div>
-                    <p className="text-white font-bold">{profileName}</p>
-                    <p className="text-indigo-300 text-sm">+{profilePhone}</p>
-                  </div>
-                  <CheckCircle2 size={20} className="ml-auto text-emerald-400" />
-                </div>
-
-                <div className="grid grid-cols-3 gap-2">
-                  {[
-                    { icon: <Send size={13} />,    label: 'Enviadas',  value: sentToday.toString() },
-                    { icon: <Clock size={13} />,   label: 'Uptime',    value: formatUptime(uptime) },
-                    { icon: <Signal size={13} />,  label: 'Sinal',     value: '100%' },
-                  ].map(item => (
-                    <div key={item.label}
-                      className="rounded-xl p-2.5 text-center"
-                      style={{ background: 'rgba(255,255,255,0.08)' }}>
-                      <div className="flex justify-center mb-1 text-emerald-400">{item.icon}</div>
-                      <p className="text-white font-bold text-sm">{item.value}</p>
-                      <p className="text-indigo-300 text-xs">{item.label}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Status bar */}
-              <div className="px-5 py-3 flex items-center gap-2"
-                style={{ background: 'rgba(16,185,129,0.15)', borderTop: '1px solid rgba(16,185,129,0.2)' }}>
-                <Zap size={13} className="text-emerald-400" />
-                <p className="text-emerald-300 text-xs font-medium">
-                  Agente ativo — enviando mensagens automaticamente
-                </p>
-              </div>
+      {/* Log de eventos */}
+      {log.length > 0 && (
+        <div className="w-full max-w-sm mt-4">
+          <div className="rounded-xl overflow-hidden" style={{ background: 'rgba(255,255,255,0.05)' }}>
+            <div className="px-4 py-2 border-b border-white/10">
+              <span className="text-xs text-indigo-300 font-semibold">Log de eventos</span>
             </div>
-
-            {/* Dica de manter ativo */}
-            <div className="rounded-xl border p-4 flex items-start gap-3"
-              style={{ background: '#fffbeb', borderColor: '#fde68a' }}>
-              <Battery size={16} style={{ color: '#d97706', flexShrink: 0, marginTop: 1 }} />
-              <div>
-                <p className="text-sm font-semibold" style={{ color: '#92400e' }}>
-                  Mantenha este dispositivo ativo
-                </p>
-                <p className="text-xs mt-0.5" style={{ color: '#b45309' }}>
-                  Deixe a tela ligada ou instale como app para funcionar em segundo plano.
-                  No celular, desative a economia de bateria para este app.
-                </p>
-              </div>
-            </div>
-
-            {/* Stats expandíveis */}
-            <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
-              <button
-                onClick={() => setShowStats(s => !s)}
-                className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-slate-700">
-                <span className="flex items-center gap-2">
-                  <MessageSquare size={14} className="text-indigo-500" />
-                  Atividade do agente
-                </span>
-                {showStats ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-              </button>
-              {showStats && (
-                <div className="px-4 pb-4 grid grid-cols-2 gap-3 border-t border-slate-100">
-                  {[
-                    { label: 'Enviadas hoje',   value: sentToday },
-                    { label: 'Online há',        value: formatUptime(uptime) },
-                    { label: 'Dispositivo',      value: navigator.userAgent.includes('Android') ? 'Android' : 'Desktop' },
-                    { label: 'Versão agente',    value: '1.0.0' },
-                  ].map(item => (
-                    <div key={item.label} className="pt-3">
-                      <p className="text-xs text-slate-500">{item.label}</p>
-                      <p className="text-sm font-bold text-slate-800">{item.value}</p>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Desconectar */}
-            <button
-              onClick={() => { agentManager.setStatus(tenantId, 'online'); setStatus('online'); setQrVisible(true); }}
-              className="w-full py-3 rounded-xl text-sm font-medium text-red-600 border border-red-200"
-              style={{ background: '#fff5f5' }}>
-              Desconectar WhatsApp
-            </button>
-          </>
-        )}
-
-        {/* ── QR / CONECTANDO ── */}
-        {!isConnected && (
-          <>
-            {/* Instruções */}
-            <div className="rounded-2xl p-4" style={{ background: '#1e1b4b' }}>
-              <p className="text-white font-bold mb-1">Conecte o WhatsApp</p>
-              <p className="text-indigo-300 text-sm">
-                Abra o WhatsApp no seu celular e escaneie o código abaixo para ativar o agente.
-              </p>
-            </div>
-
-            {/* QR Code */}
-            <div className="bg-white rounded-2xl border border-slate-200 p-5 text-center">
-              {isConnecting ? (
-                <div className="py-8 space-y-3">
-                  <div className="w-16 h-16 rounded-full mx-auto flex items-center justify-center"
-                    style={{ background: '#d1fae5' }}>
-                    <RefreshCw size={28} className="text-emerald-600 animate-spin" />
-                  </div>
-                  <p className="font-semibold text-slate-700">Conectando ao WhatsApp...</p>
-                  <p className="text-sm text-slate-500">Aguarde alguns segundos</p>
-                </div>
-              ) : (
-                <>
-                  <div className="relative inline-block">
-                    {qrVisible && (
-                      <div className="p-3 bg-white rounded-xl border border-slate-200 inline-block">
-                        <QRCodeSVG
-                          value={DEMO_QR_CONTENT}
-                          size={200}
-                          bgColor="#ffffff"
-                          fgColor="#111827"
-                        />
-                      </div>
-                    )}
-                    {/* Expiry overlay */}
-                    {qrExpiry <= 15 && qrVisible && (
-                      <div className="absolute inset-0 flex items-center justify-center rounded-xl"
-                        style={{ background: 'rgba(0,0,0,0.6)' }}>
-                        <div className="text-center">
-                          <p className="text-white font-bold text-2xl">{qrExpiry}s</p>
-                          <p className="text-white/80 text-xs">Atualizando...</p>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Timer bar */}
-                  <div className="mt-3 h-1 rounded-full bg-slate-100 overflow-hidden">
-                    <div
-                      className="h-full rounded-full transition-all duration-1000"
-                      style={{
-                        width:      `${(qrExpiry / 60) * 100}%`,
-                        background: qrExpiry > 20 ? '#10b981' : '#f59e0b',
-                      }}
-                    />
-                  </div>
-                  <p className="text-xs text-slate-400 mt-1">
-                    Código expira em {qrExpiry}s
-                  </p>
-                </>
-              )}
-            </div>
-
-            {/* Passo a passo */}
-            <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-3">
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
-                Como escanear
-              </p>
-              {[
-                { step: '1', text: 'Abra o WhatsApp no celular' },
-                { step: '2', text: 'Toque em ⋮ Mais opções → Dispositivos vinculados' },
-                { step: '3', text: 'Toque em "Vincular um dispositivo"' },
-                { step: '4', text: 'Aponte a câmera para o QR code acima' },
-              ].map(item => (
-                <div key={item.step} className="flex items-center gap-3">
-                  <span className="w-6 h-6 rounded-full text-xs font-bold flex items-center justify-center shrink-0 text-white"
-                    style={{ background: '#1e1b4b' }}>
-                    {item.step}
-                  </span>
-                  <p className="text-sm text-slate-600">{item.text}</p>
-                </div>
+            <div className="p-3 space-y-1 max-h-36 overflow-y-auto">
+              {log.map((line, i) => (
+                <p key={i} className="text-xs text-indigo-200 font-mono">{line}</p>
               ))}
             </div>
-
-            {/* Botão confirmar (demo) */}
-            {!isConnecting && (
-              <button
-                onClick={handleConnect}
-                className="w-full py-4 rounded-xl font-bold text-white text-sm flex items-center justify-center gap-2"
-                style={{ background: '#25D366' }}>
-                <Smartphone size={16} />
-                Já escaneei o QR Code
-              </button>
-            )}
-
-            {/* Atualizar QR */}
-            {!isConnecting && (
-              <button
-                onClick={refreshQR}
-                className="w-full py-3 rounded-xl text-sm font-medium text-slate-600 border border-slate-200 flex items-center justify-center gap-2">
-                <RefreshCw size={14} />
-                Gerar novo QR Code
-              </button>
-            )}
-          </>
-        )}
-
-        {/* ── Rodapé ── */}
-        <div className="text-center pt-2 pb-6">
-          <p className="text-xs text-slate-400">
-            Zapli Agent v1.0 · {tenant.company}
-          </p>
-          <p className="text-xs text-slate-400 mt-0.5">
-            Mantenha este link aberto para o bot funcionar
-          </p>
+          </div>
         </div>
-      </div>
+      )}
+
+      <p className="text-indigo-400 text-xs mt-6">Zapli MVP · WhatsApp via Baileys</p>
     </div>
   );
 }

@@ -38,6 +38,12 @@ export const supabase = createClient<Database>(
   }
 );
 
+// ── db: cliente sem tipagem genérica — para queries dinâmicas ──
+// Necessário porque os tipos de Insert/Update são derivados dinamicamente
+// e o compilador não consegue inferir quando o schema ainda não foi gerado.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export const db = supabase as any;
+
 // ── Helper: verifica se Supabase está configurado ────────
 export const IS_SUPABASE_CONFIGURED =
   !!import.meta.env.VITE_SUPABASE_URL &&
@@ -55,7 +61,7 @@ export async function getCurrentTenantId(): Promise<string | null> {
     .eq('id', user.id)
     .single();
 
-  return data?.tenant_id ?? null;
+  return (data as { tenant_id: string } | null)?.tenant_id ?? null;
 }
 
 // ── Helper: tipagem das tabelas ──────────────────────────

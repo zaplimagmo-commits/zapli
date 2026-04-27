@@ -81,7 +81,7 @@ export const NAV_BY_ROLE: Record<TenantRole | 'admin', NavItem[]> = {
     { label: 'Modelos',       icon: 'MessageSquare',   to: ROUTES.APP_TEMPLATES },
     // Integrações
     { label: 'WhatsApp',      icon: 'MessageCircle',   to: ROUTES.APP_WHATSAPP, group: 'Integrações' },
-    { label: 'Instagram',     icon: 'Instagram',       to: ROUTES.APP_INSTAGRAM },
+    { label: 'Instagram', icon: 'Instagram', to: ROUTES.APP_INSTAGRAM, badge: 'Em breve' },
     // Conta
     { label: 'Notificações',  icon: 'Bell',            to: ROUTES.APP_NOTIFICATIONS, badge: 'notif', group: 'Conta' },
     { label: 'Assinatura',    icon: 'CreditCard',      to: ROUTES.APP_SUBSCRIPTION },
@@ -108,7 +108,7 @@ export const NAV_BY_ROLE: Record<TenantRole | 'admin', NavItem[]> = {
     { label: 'Bot',           icon: 'Bot',             to: ROUTES.APP_BOT },
     { label: 'Modelos',       icon: 'MessageSquare',   to: ROUTES.APP_TEMPLATES },
     { label: 'WhatsApp',      icon: 'MessageCircle',   to: ROUTES.APP_WHATSAPP, group: 'Integrações' },
-    { label: 'Instagram',     icon: 'Instagram',       to: ROUTES.APP_INSTAGRAM },
+    { label: 'Instagram', icon: 'Instagram', to: ROUTES.APP_INSTAGRAM, badge: 'Em breve' },
     { label: 'Notificações',  icon: 'Bell',            to: ROUTES.APP_NOTIFICATIONS, badge: 'notif', group: 'Conta' },
     { label: 'Configurações', icon: 'Settings',        to: ROUTES.APP_SETTINGS },
   ],
