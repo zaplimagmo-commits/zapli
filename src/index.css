@@ -67,6 +67,18 @@
   --input: oklch(0.90 0.005 240);
   --ring: oklch(0.55 0.18 240);
   
+  /* Brand accent (emerald green for CTAs) */
+  --emerald: oklch(0.60 0.17 160);
+  --emerald-fg: oklch(0.98 0 0);
+  --indigo-deep: oklch(0.22 0.08 268);
+
+  /* Status colors */
+  --status-waiting: oklch(0.55 0.18 240);
+  --status-followup: oklch(0.65 0.15 45);
+  --status-responded: oklch(0.55 0.20 280);
+  --status-converted: oklch(0.55 0.17 160);
+  --status-archived: oklch(0.60 0.01 240);
+
   /* Chart Tokens */
   --chart-1: oklch(0.55 0.18 240);
   --chart-2: oklch(0.60 0.16 150);
@@ -152,6 +164,11 @@
   --color-chart-3: var(--chart-3);
   --color-chart-4: var(--chart-4);
   --color-chart-5: var(--chart-5);
+
+  /* Brand extras */
+  --color-emerald: var(--emerald);
+  --color-emerald-fg: var(--emerald-fg);
+  --color-indigo-deep: var(--indigo-deep);
 
   /* Sidebar Mapping */
   --color-sidebar: var(--sidebar);
