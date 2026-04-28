@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/AppContext';
 import { AppLayout } from '@/components/AppLayout';
 import { PageHeader } from '@/components/UIComponents';
@@ -7,13 +7,15 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Building2, Bell, Settings as SettingsIcon, Save, CheckCircle2 } from 'lucide-react';
+import { Building2, Bell, Settings as SettingsIcon, Save, CheckCircle2, Loader2 } from 'lucide-react';
+import { db } from '@/lib/supabase';
 
 export default function AppSettings() {
   const { user } = useAuth();
   const [saved, setSaved] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [settings, setSettings] = useState({
-    companyName: user?.companyName ?? '',
+    companyName: '',
     followUpDays: '3',
     maxFollowUps: '3',
     notifyEmail: '',
@@ -21,15 +23,72 @@ export default function AppSettings() {
     notifyOnPositive: true,
   });
 
-  function handleSave() {
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2500);
+  useEffect(() => {
+    if (user?.tenantId) loadSettings();
+  }, [user?.tenantId]);
+
+  async function loadSettings() {
+    setLoading(true);
+    try {
+      const { data: tenant } = await db
+        .from('tenants')
+        .select('*')
+        .eq('id', user?.tenantId)
+        .single();
+      
+      if (tenant) {
+        setSettings({
+          companyName: tenant.name || '',
+          followUpDays: String(tenant.settings?.followUpDays || '3'),
+          maxFollowUps: String(tenant.settings?.maxFollowUps || '3'),
+          notifyEmail: tenant.settings?.notifyEmail || '',
+          autoArchive: tenant.settings?.autoArchive ?? true,
+          notifyOnPositive: tenant.settings?.notifyOnPositive ?? true,
+        });
+      }
+    } catch (err) {
+      console.error('Erro ao carregar configurações:', err);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleSave() {
+    if (!user?.tenantId) return;
+    
+    try {
+      await db.from('tenants').update({
+        name: settings.companyName,
+        settings: {
+          followUpDays: Number(settings.followUpDays),
+          maxFollowUps: Number(settings.maxFollowUps),
+          notifyEmail: settings.notifyEmail,
+          autoArchive: settings.autoArchive,
+          notifyOnPositive: settings.notifyOnPositive,
+        }
+      }).eq('id', user.tenantId);
+
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
+    } catch (err) {
+      console.error('Erro ao salvar:', err);
+    }
+  }
+
+  if (loading) {
+    return (
+      <AppLayout>
+        <div className="min-h-screen flex items-center justify-center">
+          <Loader2 className="w-8 h-8 animate-spin text-primary" />
+        </div>
+      </AppLayout>
+    );
   }
 
   return (
     <AppLayout>
       <div className="px-8 py-7 max-w-2xl mx-auto">
-        <PageHeader title="Configurações" subtitle="Personalize o comportamento da prospecção" />
+        <PageHeader title="Configurações" subtitle="Personalize o comportamento da prospecção real" />
         <div className="space-y-5">
           <div className="bg-card rounded-xl border border-border overflow-hidden" style={{ boxShadow: '0 1px 4px rgba(0,0,0,0.05)' }}>
             <div className="px-5 py-4 border-b border-border flex items-center gap-2">

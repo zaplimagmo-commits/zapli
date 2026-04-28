@@ -1,22 +1,64 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { AppLayout } from '@/components/AppLayout';
 import { PageHeader, PlanBadge } from '@/components/UIComponents';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { mockUsers } from '@/data/index';
 import type { User } from '@/lib/index';
 import { formatDate, formatCurrency, SUB_STATUS, PLANS } from '@/lib/index';
-import { Search, MoreVertical, Ban, RefreshCw, TrendingUp, Mail } from 'lucide-react';
+import { Search, MoreVertical, Ban, RefreshCw, TrendingUp, Mail, Loader2 } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { db } from '@/lib/supabase';
 
 export default function AdminUsers() {
-  const [users, setUsers] = useState<User[]>(mockUsers.filter(u => u.role === 'user'));
+  const [users, setUsers] = useState<User[]>([]);
+  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [filterPlan, setFilterPlan] = useState('all');
   const [filterStatus, setFilterStatus] = useState('all');
   const [detailUser, setDetailUser] = useState<User | null>(null);
+
+  useEffect(() => {
+    loadUsers();
+  }, []);
+
+  async function loadUsers() {
+    setLoading(true);
+    try {
+      const { data: profileRows } = await db
+        .from('users')
+        .select('*, tenants(*)')
+        .eq('system_role', 'user')
+        .order('created_at', { ascending: false });
+
+      if (profileRows) {
+        const mapped: User[] = profileRows.map(row => {
+          const tenant = row.tenants as any;
+          return {
+            id: row.id,
+            name: row.name,
+            email: row.email,
+            role: row.system_role,
+            tenantRole: row.tenant_role,
+            tenantId: row.tenant_id,
+            companyName: tenant?.name || 'Sem empresa',
+            planId: (tenant?.plan || 'starter') as User['planId'],
+            subscriptionStatus: (tenant?.plan_status === 'active' ? 'active' : 'trial') as User['subscriptionStatus'],
+            contactsUsed: 0,
+            createdAt: new Date(row.created_at),
+            lastLoginAt: row.last_login_at ? new Date(row.last_login_at) : new Date(row.created_at),
+            avatarColor: '#6366f1'
+          };
+        });
+        setUsers(mapped);
+      }
+    } catch (err) {
+      console.error('Erro ao carregar usuários:', err);
+    } finally {
+      setLoading(false);
+    }
+  }
 
   const filtered = users.filter(u => {
     const q = search.toLowerCase();
@@ -25,22 +67,19 @@ export default function AdminUsers() {
       (filterStatus === 'all' || u.subscriptionStatus === filterStatus);
   });
 
-  function cancelUser(id: string) {
+  async function cancelUser(id: string) {
+    // Implementação futura: Integração com Stripe/Supabase
     setUsers(prev => prev.map(u => u.id !== id ? u : { ...u, subscriptionStatus: 'cancelled' }));
   }
 
-  function reactivateUser(id: string) {
+  async function reactivateUser(id: string) {
     setUsers(prev => prev.map(u => u.id !== id ? u : { ...u, subscriptionStatus: 'active' }));
-  }
-
-  function upgradePlan(id: string, planId: string) {
-    setUsers(prev => prev.map(u => u.id !== id ? u : { ...u, planId: planId as User['planId'] }));
   }
 
   return (
     <AppLayout>
       <div className="px-8 py-7 max-w-7xl mx-auto">
-        <PageHeader title="Gerenciar Usuários" subtitle={`${users.length} clientes cadastrados`} />
+        <PageHeader title="Gerenciar Usuários" subtitle={`${users.length} clientes reais cadastrados`} />
 
         {/* Summary row */}
         <div className="grid grid-cols-4 gap-4 mb-6">
@@ -82,6 +121,9 @@ export default function AdminUsers() {
               <SelectItem value="past_due">Inadimplente</SelectItem>
             </SelectContent>
           </Select>
+          <Button variant="outline" size="sm" onClick={loadUsers} disabled={loading}>
+            {loading ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+          </Button>
         </div>
 
         {/* Table */}
@@ -96,9 +138,11 @@ export default function AdminUsers() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {filtered.map(u => {
-                  const sub = SUB_STATUS[u.subscriptionStatus];
-                  const plan = PLANS[u.planId];
+                {loading ? (
+                  <tr><td colSpan={8} className="text-center py-20 text-muted-foreground">Carregando usuários...</td></tr>
+                ) : filtered.map(u => {
+                  const sub = SUB_STATUS[u.subscriptionStatus] || SUB_STATUS.trial;
+                  const plan = PLANS[u.planId] || PLANS.starter;
                   return (
                     <tr key={u.id} className="hover:bg-muted/20 transition-colors">
                       <td className="px-5 py-3.5">
@@ -145,15 +189,15 @@ export default function AdminUsers() {
                                 <Ban size={13} className="mr-2" /> Cancelar
                               </DropdownMenuItem>
                             )}
-                            <DropdownMenuItem>
-                              <Mail size={13} className="mr-2" /> Enviar e-mail
-                            </DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </td>
                     </tr>
                   );
                 })}
+                {!loading && filtered.length === 0 && (
+                  <tr><td colSpan={8} className="text-center py-20 text-muted-foreground">Nenhum usuário encontrado.</td></tr>
+                )}
               </tbody>
             </table>
           </div>
@@ -179,29 +223,17 @@ export default function AdminUsers() {
               <div className="grid grid-cols-2 gap-3">
                 {[
                   { label: 'Plano', value: <PlanBadge planId={detailUser.planId} /> },
-                  { label: 'Status', value: SUB_STATUS[detailUser.subscriptionStatus].label },
-                  { label: 'Contatos usados', value: `${detailUser.contactsUsed} / ${PLANS[detailUser.planId].maxContacts ?? '∞'}` },
+                  { label: 'Status', value: (SUB_STATUS[detailUser.subscriptionStatus] || SUB_STATUS.trial).label },
+                  { label: 'Contatos usados', value: `${detailUser.contactsUsed} / ${(PLANS[detailUser.planId] || PLANS.starter).maxContacts ?? '∞'}` },
                   { label: 'Cadastrado em', value: formatDate(detailUser.createdAt) },
                   { label: 'Último login', value: formatDate(detailUser.lastLoginAt) },
-                  { label: 'MRR', value: detailUser.subscriptionStatus === 'active' ? formatCurrency(PLANS[detailUser.planId].price) : '—' },
+                  { label: 'MRR', value: detailUser.subscriptionStatus === 'active' ? formatCurrency((PLANS[detailUser.planId] || PLANS.starter).price) : '—' },
                 ].map(item => (
                   <div key={item.label} className="bg-muted/40 rounded-lg p-3">
                     <p className="text-xs text-muted-foreground mb-1">{item.label}</p>
                     <div className="text-sm font-medium text-foreground">{item.value}</div>
                   </div>
                 ))}
-              </div>
-              <div>
-                <p className="text-xs font-medium text-muted-foreground mb-2">Alterar Plano</p>
-                <div className="flex gap-2">
-                  {(['starter', 'pro', 'business'] as const).map(p => (
-                    <button key={p} onClick={() => { upgradePlan(detailUser.id, p); setDetailUser(prev => prev ? { ...prev, planId: p } : null); }}
-                      className={`flex-1 py-1.5 rounded-lg text-xs font-semibold border transition-all ${detailUser.planId === p ? 'text-white' : 'text-muted-foreground hover:border-primary/50'}`}
-                      style={detailUser.planId === p ? { background: 'var(--emerald)', borderColor: 'var(--emerald)' } : {}}>
-                      {p.charAt(0).toUpperCase() + p.slice(1)}
-                    </button>
-                  ))}
-                </div>
               </div>
             </div>
             <DialogFooter>
