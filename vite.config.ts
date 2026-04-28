@@ -167,17 +167,14 @@ function cdnPrefixImages(): Plugin {
     name: 'cdn-prefix-images-existing',
     apply: 'build',
     enforce: 'pre', // run before @vitejs/plugin-react
-
     configResolved(cfg) {
       publicDir = cfg.publicDir; // absolute
       if (DEBUG) console.log('[cdn] publicDir =', publicDir);
     },
-
     async buildStart() {
       await collectPublicImagesFrom(publicDir);
       if (DEBUG) console.log('[cdn] images found:', imageSet.size);
     },
-
     transformIndexHtml(html) {
       const cdn = process.env.CDN_IMG_PREFIX;
       if (!cdn) return html;
@@ -185,21 +182,17 @@ function cdnPrefixImages(): Plugin {
       if (DEBUG) console.log('[cdn] transformIndexHtml done');
       return out;
     },
-
     transform(code, id) {
       const cdn = process.env.CDN_IMG_PREFIX;
       if (!cdn) return null;
-
       if (/\.(jsx|tsx)$/.test(id)) {
         const out = rewriteJsxAst(code, id, cdn);
         return out ? { code: out, map: null } : null;
       }
-
       if (/\.(css|scss|sass|less|styl)$/i.test(id)) {
         const out = rewriteCssUrls(code, cdn);
         return out === code ? null : { code: out, map: null };
       }
-
       return null;
     },
   };
@@ -208,7 +201,7 @@ function cdnPrefixImages(): Plugin {
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
   return {
-    base: mode === 'production' ? '/zapli/' : '/',
+    base: '/zapli/',
     server: {
       host: "::",
       port: 8080,
