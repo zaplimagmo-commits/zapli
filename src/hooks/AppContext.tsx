@@ -230,18 +230,33 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   const addContact = useCallback(async (data: any) => {
-    if (!authUser?.tenantId) return;
-    const { data: newContact, error } = await db.from('contacts').insert({
-      tenant_id: authUser.tenantId,
-      name: data.name,
-      phone: data.phone,
-      company: data.company,
-      email: data.email,
-      status: 'aguardando',
-      notes: data.notes,
-    }).select().single();
-    
-    if (newContact) setContacts(prev => [rowToContact(newContact), ...prev]);
+    if (!authUser?.tenantId) {
+      console.error('[Zapli] Erro: tenantId nao encontrado. Usuario nao autenticado.');
+      return;
+    }
+    try {
+      const { data: newContact, error } = await db.from('contacts').insert({
+        tenant_id: authUser.tenantId,
+        name: data.name,
+        phone: data.phone,
+        company: data.company,
+        email: data.email,
+        status: 'aguardando',
+        notes: data.notes,
+      }).select().single();
+      
+      if (error) {
+        console.error('[Zapli] Erro ao inserir contato:', error);
+        return;
+      }
+      
+      if (newContact) {
+        console.log('[Zapli] Contato inserido com sucesso:', newContact);
+        setContacts(prev => [rowToContact(newContact), ...prev]);
+      }
+    } catch (err) {
+      console.error('[Zapli] Erro ao adicionar contato:', err);
+    }
   }, [authUser]);
 
   const sendInitialMessage = useCallback((id: string, companyName: string) => {
@@ -261,8 +276,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [contacts]);
 
   const updateStatus = useCallback(async (id: string, status: ContactStatus) => {
-    await db.from('contacts').update({ status }).eq('id', id);
-    setContacts(prev => prev.map(c => c.id === id ? { ...c, status } : c));
+    try {
+      const { error } = await db.from('contacts').update({ status }).eq('id', id);
+      if (error) {
+        console.error('[Zapli] Erro ao atualizar status:', error);
+        return;
+      }
+      setContacts(prev => prev.map(c => c.id === id ? { ...c, status } : c));
+      console.log('[Zapli] Status atualizado com sucesso para:', status);
+    } catch (err) {
+      console.error('[Zapli] Erro ao atualizar status:', err);
+    }
   }, []);
 
   const markPositiveResponse = useCallback((id: string) => updateStatus(id, 'respondido'), [updateStatus]);
@@ -273,8 +297,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const deleteContact = useCallback(async (id: string) => {
-    await db.from('contacts').delete().eq('id', id);
-    setContacts(prev => prev.filter(c => c.id !== id));
+    try {
+      const { error } = await db.from('contacts').delete().eq('id', id);
+      if (error) {
+        console.error('[Zapli] Erro ao deletar contato:', error);
+        return;
+      }
+      setContacts(prev => prev.filter(c => c.id !== id));
+      console.log('[Zapli] Contato deletado com sucesso');
+    } catch (err) {
+      console.error('[Zapli] Erro ao deletar contato:', err);
+    }
   }, []);
 
   const updateTemplate = useCallback((id: string, content: string, name: string) => {
@@ -282,47 +315,98 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const markNotifRead = useCallback(async (id: string) => {
-    await db.from('notifications').update({ read: true }).eq('id', id);
-    setNotifications(prev => prev.map(n => n.id === id ? { ...n, isRead: true } : n));
+    try {
+      const { error } = await db.from('notifications').update({ read: true }).eq('id', id);
+      if (error) {
+        console.error('[Zapli] Erro ao marcar notificacao como lida:', error);
+        return;
+      }
+      setNotifications(prev => prev.map(n => n.id === id ? { ...n, isRead: true } : n));
+    } catch (err) {
+      console.error('[Zapli] Erro ao marcar notificacao como lida:', err);
+    }
   }, []);
 
   const markAllNotifsRead = useCallback(async () => {
     if (!authUser?.tenantId) return;
-    await db.from('notifications').update({ read: true }).eq('tenant_id', authUser.tenantId);
-    setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
+    try {
+      const { error } = await db.from('notifications').update({ read: true }).eq('tenant_id', authUser.tenantId);
+      if (error) {
+        console.error('[Zapli] Erro ao marcar todas as notificacoes como lidas:', error);
+        return;
+      }
+      setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
+    } catch (err) {
+      console.error('[Zapli] Erro ao marcar todas as notificacoes como lidas:', err);
+    }
   }, [authUser]);
 
   const addDeal = useCallback(async (data: any) => {
     if (!authUser?.tenantId) return;
-    const { data: newDeal } = await db.from('deals').insert({
-      tenant_id: authUser.tenantId,
-      title: data.name,
-      value: data.value,
-      stage: data.stage,
-      notes: data.notes,
-      contact_id: data.contactId,
-    }).select().single();
-    if (newDeal) setDeals(prev => [{
-      id: newDeal.id, userId: newDeal.tenant_id, title: newDeal.title, value: Number(newDeal.value),
-      stage: newDeal.stage as DealStage, notes: newDeal.notes, createdAt: new Date(newDeal.created_at),
-      updatedAt: new Date(newDeal.updated_at), fromProspecting: !!newDeal.contact_id,
-      timeline: [], name: newDeal.title, company: '', phone: ''
-    } as any, ...prev]);
+    try {
+      const { data: newDeal, error } = await db.from('deals').insert({
+        tenant_id: authUser.tenantId,
+        title: data.name,
+        value: data.value,
+        stage: data.stage,
+        notes: data.notes,
+        contact_id: data.contactId,
+      }).select().single();
+      if (error) {
+        console.error('[Zapli] Erro ao inserir deal:', error);
+        return;
+      }
+      if (newDeal) {
+        console.log('[Zapli] Deal inserido com sucesso:', newDeal);
+        setDeals(prev => [{
+          id: newDeal.id, userId: newDeal.tenant_id, title: newDeal.title, value: Number(newDeal.value),
+          stage: newDeal.stage as DealStage, notes: newDeal.notes, createdAt: new Date(newDeal.created_at),
+          updatedAt: new Date(newDeal.updated_at), fromProspecting: !!newDeal.contact_id,
+          timeline: [], name: newDeal.title, company: '', phone: ''
+        } as any, ...prev]);
+      }
+    } catch (err) {
+      console.error('[Zapli] Erro ao adicionar deal:', err);
+    }
   }, [authUser]);
 
   const moveDeal = useCallback(async (id: string, stage: DealStage) => {
-    await db.from('deals').update({ stage, updated_at: new Date() }).eq('id', id);
-    setDeals(prev => prev.map(d => d.id === id ? { ...d, stage, updatedAt: new Date() } : d));
+    try {
+      const { error } = await db.from('deals').update({ stage, updated_at: new Date() }).eq('id', id);
+      if (error) {
+        console.error('[Zapli] Erro ao mover deal:', error);
+        return;
+      }
+      setDeals(prev => prev.map(d => d.id === id ? { ...d, stage, updatedAt: new Date() } : d));
+    } catch (err) {
+      console.error('[Zapli] Erro ao mover deal:', err);
+    }
   }, []);
 
   const updateDeal = useCallback(async (id: string, patch: any) => {
-    await db.from('deals').update({ ...patch, updated_at: new Date() }).eq('id', id);
-    setDeals(prev => prev.map(d => d.id === id ? { ...d, ...patch, updatedAt: new Date() } : d));
+    try {
+      const { error } = await db.from('deals').update({ ...patch, updated_at: new Date() }).eq('id', id);
+      if (error) {
+        console.error('[Zapli] Erro ao atualizar deal:', error);
+        return;
+      }
+      setDeals(prev => prev.map(d => d.id === id ? { ...d, ...patch, updatedAt: new Date() } : d));
+    } catch (err) {
+      console.error('[Zapli] Erro ao atualizar deal:', err);
+    }
   }, []);
 
   const deleteDeal = useCallback(async (id: string) => {
-    await db.from('deals').delete().eq('id', id);
-    setDeals(prev => prev.filter(d => d.id !== id));
+    try {
+      const { error } = await db.from('deals').delete().eq('id', id);
+      if (error) {
+        console.error('[Zapli] Erro ao deletar deal:', error);
+        return;
+      }
+      setDeals(prev => prev.filter(d => d.id !== id));
+    } catch (err) {
+      console.error('[Zapli] Erro ao deletar deal:', err);
+    }
   }, []);
 
   const addClient = useCallback((data: any) => {
