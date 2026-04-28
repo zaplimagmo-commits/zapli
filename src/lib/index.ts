@@ -190,6 +190,15 @@ export const DEAL_STAGES: { id: DealStage; label: string; color: string; descrip
   { id: 'perdido',      label: 'Perdido',            color: '#ef4444', description: 'Negócio não concluído' },
 ];
 
+export const STAGE_PROBABILITY: Record<DealStage, number> = {
+  contato: 10,
+  qualificacao: 30,
+  proposta: 60,
+  negociacao: 80,
+  fechado: 100,
+  perdido: 0,
+};
+
 // ============================================================
 // CUSTOMER (Cliente) — gerado quando deal é fechado
 // ============================================================
