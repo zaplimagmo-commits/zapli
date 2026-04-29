@@ -146,30 +146,39 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   async function loadUserProfile(userId: string) {
-    const { data: profile, error } = await db.from('users').select('*, tenants(*)').eq('id', userId).single();
-    
-    // Se não encontrou o perfil na tabela users, loga o erro mas não trava
-    if (!profile) {
-      console.error('[Zapli] Perfil de usuário não encontrado na tabela users:', error?.message || 'sem dados');
-      // Cria um perfil mínimo para evitar loop — usuário autenticado mas sem tenant
-      const { data: { user: authUser } } = await supabase.auth.getUser();
-      if (authUser) {
-        setAuthUser({
-          id: authUser.id,
-          name: authUser.user_metadata?.name || authUser.email?.split('@')[0] || 'Usuário',
-          email: authUser.email || '',
-          role: 'user',
-          tenantRole: 'gestor',
-          tenantId: undefined,
-          companyName: '',
-          planId: 'starter',
-          subscriptionStatus: 'trial',
-          contactsUsed: 0,
-          avatarColor: '#6366f1',
-        });
+    setAuthLoading(true);
+    try {
+      // Timeout de 10s para carregar o perfil
+      const profilePromise = db.from('users').select('*, tenants(*)').eq('id', userId).single();
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Timeout loading profile')), 10000)
+      );
+
+      const { data: profile, error } = await Promise.race([profilePromise, timeoutPromise]) as any;
+      
+      // Se não encontrou o perfil na tabela users, loga o erro mas não trava
+      if (!profile) {
+        console.error('[Zapli] Perfil de usuário não encontrado na tabela users:', error?.message || 'sem dados');
+        // Cria um perfil mínimo para evitar loop — usuário autenticado mas sem tenant
+        const { data: { user: authUser } } = await supabase.auth.getUser();
+        if (authUser) {
+          setAuthUser({
+            id: authUser.id,
+            name: authUser.user_metadata?.name || authUser.email?.split('@')[0] || 'Usuário',
+            email: authUser.email || '',
+            role: 'user',
+            tenantRole: 'gestor',
+            tenantId: undefined,
+            companyName: '',
+            planId: 'starter',
+            subscriptionStatus: 'trial',
+            contactsUsed: 0,
+            avatarColor: '#6366f1',
+          });
+        }
+        setAuthLoading(false);
+        return;
       }
-      return;
-    }
 
     const tenant = profile.tenants;
     const user: AuthUser = {
@@ -187,7 +196,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
 
     setAuthUser(user);
-    if (profile.tenant_id) await loadTenantData(profile.tenant_id);
+    if (profile.tenant_id) {
+      try {
+        await loadTenantData(profile.tenant_id);
+      } catch (err) {
+        console.error('[Zapli] Erro ao carregar dados do tenant:', err);
+      }
+    }
+    } catch (err) {
+      console.error('[Zapli] Erro crítico ao carregar perfil:', err);
+    } finally {
+      setAuthLoading(false);
+    }
   }
 
   async function loadTenantData(tenantId: string) {

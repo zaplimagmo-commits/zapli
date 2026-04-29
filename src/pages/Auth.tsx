@@ -21,10 +21,10 @@ export function LoginPage() {
     setLoading(true);
     setError('');
     const ok = await login(email, password);
-    setLoading(false);
     if (ok) {
       navigate(ROUTES.APP_DASHBOARD);
     } else {
+      setLoading(false);
       setError('E-mail ou senha incorretos. Verifique e tente novamente.');
     }
   }
