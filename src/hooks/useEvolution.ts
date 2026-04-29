@@ -153,7 +153,7 @@ export function useEvolution(tenantId?: string): UseEvolutionReturn {
 
   useEffect(() => {
     processorRef.current?.setTenant(tenantId || 'default');
-    if (!IS_CONFIGURED || !tenantId) return;
+    if (!tenantId) return;
     checkExistingConnection();
   }, [instanceName, tenantId]);
 

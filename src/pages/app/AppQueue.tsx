@@ -12,6 +12,7 @@ import {
   Wifi, WifiOff, LayoutList
 } from 'lucide-react';
 import { useEvolution } from '@/hooks/useEvolution';
+import { agentManager } from '@/lib/agentManager';
 
 function StatusBadge({ status }: { status: string }) {
   switch (status) {
@@ -28,11 +29,21 @@ export default function AppQueue() {
   const { user } = useAuth();
   const { contacts } = useProspect();
   const {
-    connectionStatus, queue: evoQueue, queueRunning, queuePaused,
+    queue: evoQueue, queueRunning, queuePaused,
     startQueue, pauseQueue, resumeQueue, stopQueue, loadQueue, settings
   } = useEvolution(user?.tenantId);
 
-  const isConnected = connectionStatus === 'connected';
+  const [agentInfo, setAgentInfo] = useState(user?.tenantId ? agentManager.getAgent(user.tenantId) : null);
+
+  useEffect(() => {
+    if (!user?.tenantId) return;
+    const unsub = agentManager.on(user.tenantId, (info) => {
+      setAgentInfo(info);
+    });
+    return () => unsub();
+  }, [user?.tenantId]);
+
+  const isConnected = agentInfo?.status === 'connected';
 
   // Fila real baseada nos contatos que precisam de envio ou follow-up
   const realQueue = useMemo(() => {
@@ -71,15 +82,16 @@ export default function AppQueue() {
           subtitle="Gerencie os disparos automáticos para seus leads"
           action={
             <div className="flex items-center gap-2">
-              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium"
+              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium cursor-pointer hover:bg-slate-50 transition-colors"
+                onClick={() => window.open(agentManager.getAgentLink(user?.tenantId || ''), '_blank')}
                 style={{
-                  background: isConnected ? '#f0fdf4' : '#f9fafb',
-                  borderColor: isConnected ? '#bbf7d0' : '#e5e7eb',
-                  color: isConnected ? '#059669' : '#6b7280',
+                  background: isConnected ? '#f0fdf4' : '#fef2f2',
+                  borderColor: isConnected ? '#bbf7d0' : '#fecaca',
+                  color: isConnected ? '#059669' : '#dc2626',
                 }}>
                 {isConnected
                   ? <><Wifi size={12} /> WhatsApp conectado</>
-                  : <><WifiOff size={12} /> WhatsApp desconectado</>}
+                  : <><WifiOff size={12} /> WhatsApp desconectado (Abrir Agente)</>}
               </div>
 
               {!queueRunning ? (
