@@ -112,14 +112,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [activityLog, setActivityLog] = useState<ActivityLog[]>([]);
 
   useEffect(() => {
+    // Controle para evitar race condition entre getSession e onAuthStateChange
+    let initialized = false;
+
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (session?.user) await loadUserProfile(session.user.id);
+      initialized = true;
+      setAuthLoading(false);
+    }).catch(() => {
+      initialized = true;
       setAuthLoading(false);
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      if (session?.user) await loadUserProfile(session.user.id);
-      else {
+      // Evita processamento duplicado na inicialização (getSession já cuidou disso)
+      if (!initialized && _event === 'INITIAL_SESSION') return;
+
+      if (session?.user) {
+        await loadUserProfile(session.user.id);
+      } else {
         setAuthUser(null);
         setContacts([]);
         setDeals([]);
@@ -135,8 +146,30 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   async function loadUserProfile(userId: string) {
-    const { data: profile } = await db.from('users').select('*, tenants(*)').eq('id', userId).single();
-    if (!profile) return;
+    const { data: profile, error } = await db.from('users').select('*, tenants(*)').eq('id', userId).single();
+    
+    // Se não encontrou o perfil na tabela users, loga o erro mas não trava
+    if (!profile) {
+      console.error('[Zapli] Perfil de usuário não encontrado na tabela users:', error?.message || 'sem dados');
+      // Cria um perfil mínimo para evitar loop — usuário autenticado mas sem tenant
+      const { data: { user: authUser } } = await supabase.auth.getUser();
+      if (authUser) {
+        setAuthUser({
+          id: authUser.id,
+          name: authUser.user_metadata?.name || authUser.email?.split('@')[0] || 'Usuário',
+          email: authUser.email || '',
+          role: 'user',
+          tenantRole: 'gestor',
+          tenantId: undefined,
+          companyName: '',
+          planId: 'starter',
+          subscriptionStatus: 'trial',
+          contactsUsed: 0,
+          avatarColor: '#6366f1',
+        });
+      }
+      return;
+    }
 
     const tenant = profile.tenants;
     const user: AuthUser = {
@@ -205,10 +238,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }
 
   const login = async (email: string, password: string) => {
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) return false;
-    if (data.user) await loadUserProfile(data.user.id);
-    return true;
+    try {
+      // Timeout de 15s para não deixar a tela travada indefinidamente
+      const loginPromise = supabase.auth.signInWithPassword({ email, password });
+      const timeoutPromise = new Promise<{ data: null; error: Error }>(resolve =>
+        setTimeout(() => resolve({ data: null, error: new Error('Tempo limite excedido. Verifique sua conexão.') }), 15000)
+      );
+
+      const result = await Promise.race([loginPromise, timeoutPromise]);
+      const { data, error } = result as Awaited<typeof loginPromise>;
+
+      if (error || !data?.user) return false;
+      await loadUserProfile(data.user.id);
+      return true;
+    } catch (err) {
+      console.error('[Zapli] Erro inesperado no login:', err);
+      return false;
+    }
   };
 
   const logout = async () => {
